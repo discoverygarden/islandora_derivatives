@@ -1,0 +1,200 @@
+<?php
+
+function islandora_derivatives_menu() {
+  $items['admin/settings/islandora_derivatives'] = array(
+    'title' => 'Islandora Microservices',
+    'description' => 'Admin page for Islandora Microservices',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('islandora_derivatives_form'),
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/islandora_derivatives/change'] = array(
+    'page callback' => 'islandora_derivatives_change_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+   return $items;
+}
+
+function islandora_derivatives_form($form_state) {
+  require_once("Stomp.php");
+  
+  $options['default'] = t('-- Select an option --');
+  $options['all'] = t('All derivatives');
+  $options['missing'] = t('Only missing derivatives');
+  $form = array(
+    '#title' => t('Islandora Microservices'),
+    'derivoptions' => array(
+      '#type' => 'select',
+      '#title' => t('Select an option of regenerating derivatives'),
+      '#options' => $options,
+    ),
+    'pidtextarea' => array(
+      '#type' => 'textarea',
+      '#title' => t('List of pids to be processed separated by commas'),
+      '#description' => t('Allowed namespaces are: %namespaces',
+          array(
+          '%namespaces' => variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: '),  
+          )),
+    ),
+    'submit' => array(
+      '#type' => 'submit',
+      '#name' => 'islandora_derivatives_form_submit_button',
+      '#value' => t('Update Derivatives'),
+    ),
+    'advancedoptions' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Advanced options'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#prefix' => '<div id="islandora_derivatives">',
+      '#suffix' => '</div>',     
+      'islandora_derivatives_stompurl' => array(
+        '#type' => 'textfield',
+        '#title' => t('Stomp URL'),
+        '#value' => variable_get('islandora_derivatives_stompurl', 'tcp://localhost:61613'), 
+        '#ahah' => array(
+          'path' => "admin/settings/islandora_derivatives/change",
+          'wrapper' => 'islandora_derivatives',
+          'keypress' => TRUE,
+        ),
+      )
+    ),
+  );
+  if (islandora_derivatives_stomp_avail(variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'))) {
+    $constatus = '<img src="' . url('misc/watchdog-ok.png') . '"/>'
+          . t('Successfully connected to Stomp server at %stomp_url', 
+          array(
+            '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613')
+          ));
+  }
+  else {
+    $constatus = '<img src="'
+          . url('misc/watchdog-error.png') . '"/> '
+          . t('Unable to connect to Stomp server at %stomp_url', 
+          array(
+            '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613')
+          ));
+  }
+  $form['advancedoptions']['stompcon'] = array(
+    '#type' => 'item',
+    '#value' => $constatus,
+  );
+  return $form; 
+}
+
+function islandora_derivatives_form_submit(array $form, array &$form_state) {
+  require_once("Stomp.php");
+    
+  try {
+    $stomp = new Stomp(variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'));
+    $stomp->connect();
+  } catch (Exception $e) {
+    drupal_set_message(t("Unable to start process as the connection to Stomp at %stomp_url failed!"
+        ,
+        array(
+          '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'),
+        )
+    ), error);
+    $failedcon = TRUE;
+  }
+  
+  if (!$failedcon) {
+    $selectopt = $form_state['values']['derivoptions'];
+
+    if ($selectopt == 'all') {
+      $message = 'regenerateDerivatives';
+    }
+    elseif ($selectopt == 'missing') {
+      $message = 'generateDerivatives';
+    }
+    else {
+      drupal_set_message(t('You must select an option on how to regenerate derivatives'), 'error');
+      return null;
+    }
+
+    if (!empty($form_state['values']['pidtextarea'])) {
+    $namespaces = explode(' ', trim(variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: ')));
+    $derivpidlist = explode(',', $form_state['values']['pidtextarea']);
+
+      foreach ($derivpidlist as $index => $pid) {
+          $pid = trim($pid);
+        $pidnamespace = substr($pid, 0, strpos($pid, ':') + 1);
+
+        if (in_array($pidnamespace, $namespaces)) {
+          $allowedderivs[] = $pid;
+        }
+        else {
+          if (strlen($failedderivs) != 0) {
+            $failedderivs .= ', ' . $pid;
+          }
+          else {
+            $failedderivs = $pid;
+          }
+        }
+      }
+      if (!empty($allowedderivs)) {
+        foreach($allowedderivs as $key => $value) {
+          
+          $headers['method'] = $message;
+                    
+          $msgarray['pid'] = $value;          
+          $stomp->send('/topic/islandora', json_encode($msgarray), $headers);
+          
+        }
+      }
+    }
+    else {
+      drupal_set_message(t('At least one PID must be entered in order to proceed'), 'error');
+    }
+    if (!empty($failedderivs)) {
+      drupal_set_message(t('The following pids are not in the allowed namespaces and weren\'t processed: %failed',
+          array(
+            '%failed' => $failedderivs,
+          )
+      ), 'error');
+    }
+  }
+}
+
+function islandora_derivatives_change_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  require_once('Stomp.php');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+     
+  $form = array();
+  if (!islandora_derivatives_stomp_avail($form_state['post']['islandora_derivatives_stompurl'])) {
+    drupal_set_message(t("Connection to Stomp failed!"), error);
+  }
+  variable_set('islandora_derivatives_stompurl', $form_state['post']['islandora_derivatives_stompurl']);
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $data = theme('status_messages');
+    if (isset($form)) {
+      unset($form['#prefix'], $form['#suffix']);
+      
+      $form['advancedoptions']['islandora_derivatives_stompurl']['#value'] = variable_get('islandora_derivatives_stompurl', 'tcp://localhost:61613');
+      $form['advancedoptions']['#collapsed'] = FALSE;
+      $data .= drupal_render($form['advancedoptions']);
+    }
+    
+    $javascript = drupal_add_js(NULL, NULL, 'header');
+    $settings = call_user_func_array('array_merge_recursive', $javascript['setting']);
+    unset($settings['ahah']['']);
+    drupal_json(array(
+      'status' => TRUE,
+      'data' => $data,
+      'settings' => $settings,
+    ));
+  exit();
+}
+
+function islandora_derivatives_stomp_avail($url) {
+  try {
+    $stomp = new Stomp($url);
+    $stomp->connect();
+  } catch (Exception $e) {
+    return false;
+  }
+  return true;
+}
