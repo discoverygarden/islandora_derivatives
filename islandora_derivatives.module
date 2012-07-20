@@ -2,8 +2,8 @@
 
 function islandora_derivatives_menu() {
   $items['admin/settings/islandora_derivatives'] = array(
-    'title' => 'Islandora Microservices',
-    'description' => 'Admin page for Islandora Microservices',
+    'title' => 'Islandora Derivatives',
+    'description' => 'Admin page for Islandora Derivatives',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('islandora_derivatives_form'),
     'access arguments' => array('administer site configuration'),
@@ -14,59 +14,173 @@ function islandora_derivatives_menu() {
     'type' => MENU_CALLBACK,
     'access arguments' => array('administer site configuration'),
   );
-   return $items;
+  $items['admin/settings/islandora_derivatives/addcollection'] = array(
+    'page callback' => 'islandora_derivatives_add_collection_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/islandora_derivatives/findmissing'] = array(
+    'page callback' => 'islandora_derivatives_find_missing_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );  
+  return $items;
 }
 
 function islandora_derivatives_form($form_state) {
+  module_load_include('inc', 'php_lib', 'Ahah');
   require_once("Stomp.php");
+  drupal_add_css(drupal_get_path('module', 'islandora_derivatives') . '/css/islandora_derivatives.css');
+  Ahah::get_ahah_js();
   
+  $tempstomp = variable_get('fedora_soap_url', 'http://localhost:8080/fedora/services/access?wsdl');
+  preg_match('#\/\/(.*):#', $tempstomp, $matches);
+  $defaultstomp = 'tcp://' . $matches[1] . ':61613';
+  
+  $namespaces = variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: ');
+  
+  // Get all collections and then filter to those within the allowed namespaces
+  $itql_query = 'select $child $title from <#ri> 
+      where 
+      ( 
+        ( 
+          ( 
+          $child <fedora-model:hasModel> $model 
+          and $model <mulgara:is> <info:fedora/islandora:collectionCModel> 
+          and $parent_model <mulgara:is> <info:fedora/fedora-system:ContentModel-3.0> 
+          ) 
+        or 
+          ( 
+          $child <fedora-model:hasModel> $model 
+          and $model <fedora-model:hasModel> $parent_model 
+          and $parent_model <mulgara:is> <info:fedora/islandora:collectionCModel> 
+          and $child <fedora-model:state> <info:fedora/fedora-system:def/model#Active> 
+          ) 
+       ) 
+      or 
+        ( 
+          ( 
+          $child <fedora-model:hasModel> $model 
+          and $model <mulgara:is> <info:fedora/islandora:collectionCModel> 
+          and $parent_model <mulgara:is> <info:fedora/fedora-system:ContentModel-3.0> 
+          ) 
+        or 
+          ( 
+          $child <fedora-model:hasModel> $model 
+          and $model <fedora-model:hasModel> $parent_model 
+          and $parent_model <mulgara:is> <info:fedora/islandora:collectionCModel> 
+          and $child <fedora-model:state> <info:fedora/fedora-system:def/model#Active> 
+          ) 
+       )
+     )
+     and $child <fedora-model:label> $title
+     order by $title asc';
+  
+  module_load_include('inc', 'fedora_repository', 'CollectionClass');
+  $collectionClass = new CollectionClass();
+  $query_results = $collectionClass->getRelatedItems(NULL, $itql_query);
+  $xml_set = simplexml_load_string($query_results);
+  $collectionlist['default'] = '-- Select a collection --';
+  
+  foreach($xml_set->results->result as $result) {
+    $pid = (string) $result->child->attributes()->uri;
+    $label = (string) $result->title;
+    
+    preg_match('/info:fedora\/(.*):/', $pid, $matches);
+    $objnamespace = $matches[1] . ':';
+    
+    $allowednames = explode(' ', trim($namespaces));
+        
+    if (in_array($objnamespace, $allowednames)) {
+    $pid = str_replace('info:fedora/', '', $pid);
+    $collectionlist[$pid] = $label . ' (' . $pid . ')';  
+    }
+  }
+   
   $options['default'] = t('-- Select an option --');
   $options['all'] = t('All derivatives');
   $options['missing'] = t('Only missing derivatives');
   $form = array(
-    '#title' => t('Islandora Microservices'),
+    '#title' => t('Islandora Derivatives'),
+    '#prefix' => '<div id="islandora_derivatives">',
+    '#suffix' => '</div>',
+    '#action' => '/admin/settings/islandora_derivatives',
     'derivoptions' => array(
       '#type' => 'select',
       '#title' => t('Select an option of regenerating derivatives'),
       '#options' => $options,
+      '#weight' => 1,
+    ),
+    'findmissing' => array(
+      '#type' => 'checkbox',
+      '#title' => t('Include all missing derivatives?'),
+      '#weight' => 2,
+      '#ahah' => array(
+            'path' => "admin/settings/islandora_derivatives/findmissing",
+            'wrapper' => 'islandora_derivatives',
+      ),
+    ),
+    'collectionoptions' => array(
+      '#type' => 'select',
+      '#title' => t('Select a collection to recursively go through'),
+      '#options' => $collectionlist,
+      '#prefix' => '<div class="islandora_derivatives_collection_list">',
+      '#suffix' => '</div>',
+      '#weight' => 3,
+    ),
+    'collectionadd' => array(
+      '#type' => 'image_button',
+        '#src' => drupal_get_path('module', 'islandora_derivatives') . '/images/add.png', 
+        '#ahah' => array(
+          'event' => 'click',
+          'path' => "admin/settings/islandora_derivatives/addcollection",
+          'wrapper' => 'islandora_derivatives',
+        ),
+      '#weight' => 4,
     ),
     'pidtextarea' => array(
       '#type' => 'textarea',
       '#title' => t('List of pids to be processed separated by commas'),
       '#description' => t('Allowed namespaces are: %namespaces',
           array(
-          '%namespaces' => variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: '),  
+          '%namespaces' => $namespaces,  
           )),
+      '#weight' => 5,
     ),
     'submit' => array(
       '#type' => 'submit',
       '#name' => 'islandora_derivatives_form_submit_button',
       '#value' => t('Update Derivatives'),
+      '#weight' => 6,
     ),
     'advancedoptions' => array(
       '#type' => 'fieldset',
       '#title' => t('Advanced options'),
       '#collapsible' => TRUE,
       '#collapsed' => TRUE,
-      '#prefix' => '<div id="islandora_derivatives">',
-      '#suffix' => '</div>',     
+      '#prefix' => '<div id="islandora_derivatives_stomp_url">',
+      '#suffix' => '</div>',
+      '#weight' => 7,
       'islandora_derivatives_stompurl' => array(
         '#type' => 'textfield',
         '#title' => t('Stomp URL'),
-        '#value' => variable_get('islandora_derivatives_stompurl', 'tcp://localhost:61613'), 
+        '#default_value' => variable_get('islandora_derivatives_stompurl', $defaultstomp), 
         '#ahah' => array(
           'path' => "admin/settings/islandora_derivatives/change",
-          'wrapper' => 'islandora_derivatives',
+          'wrapper' => 'islandora_derivatives_stomp_url',
           'keypress' => TRUE,
         ),
       )
     ),
-  );
-  if (islandora_derivatives_stomp_avail(variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'))) {
+  );     
+  
+  if (islandora_derivatives_stomp_avail(variable_get('islandora_derivatives_stompurl', $defaultstomp))) {
     $constatus = '<img src="' . url('misc/watchdog-ok.png') . '"/>'
           . t('Successfully connected to Stomp server at %stomp_url', 
           array(
-            '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613')
+            '%stomp_url' => variable_get('islandora_derivatives_stompurl', $defaultstomp)
           ));
   }
   else {
@@ -74,7 +188,7 @@ function islandora_derivatives_form($form_state) {
           . url('misc/watchdog-error.png') . '"/> '
           . t('Unable to connect to Stomp server at %stomp_url', 
           array(
-            '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613')
+            '%stomp_url' => variable_get('islandora_derivatives_stompurl', $defaultstomp)
           ));
   }
   $form['advancedoptions']['stompcon'] = array(
@@ -86,15 +200,15 @@ function islandora_derivatives_form($form_state) {
 
 function islandora_derivatives_form_submit(array $form, array &$form_state) {
   require_once("Stomp.php");
-    
+ 
   try {
-    $stomp = new Stomp(variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'));
+    $stomp = new Stomp(variable_get('islandora_derivatives_stompurl', $defaultstomp));
     $stomp->connect();
   } catch (Exception $e) {
     drupal_set_message(t("Unable to start process as the connection to Stomp at %stomp_url failed!"
         ,
         array(
-          '%stomp_url' => variable_get('islandora_derivatives_stompurl', 'tcp:localhost:61613'),
+          '%stomp_url' => variable_get('islandora_derivatives_stompurl', $defaultstomp),
         )
     ), error);
     $failedcon = TRUE;
@@ -158,6 +272,93 @@ function islandora_derivatives_form_submit(array $form, array &$form_state) {
   }
 }
 
+function islandora_derivatives_find_missing_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+  
+  $pids = $form_state['post']['pidtextarea'];
+  
+  $itql_query = 'select $object from <#ri> where 
+    $object <fedora-model:hasModel> $model
+    and 
+    (
+    $object <fedora-rels-ext:isMemberOf> $member
+    or
+    $object <fedora-rels-ext:isMemberOfCollection> $collection
+    )';
+  module_load_include('inc', 'fedora_repository', 'CollectionClass');
+  module_load_include('inc', 'fedora_repository', 'api/fedora_item');
+  $collectionClass = new CollectionClass();
+  $query_results = $collectionClass->getRelatedItems(NULL, $itql_query);
+
+  $xml_set = simplexml_load_string($query_results);
+  $missingarray = array();
+  
+  foreach ($xml_set->results->result as $result) {
+   
+    $pid = $result->object->attributes()->uri;
+    $pid = str_replace('info:fedora/', '', (string)$pid);
+    $object = new Fedora_Item($pid);
+    
+    $relsint = $object->get_datastream_dissemination('RELS-INT');
+    $missing = FALSE;
+    
+    if ($relsint) {
+        preg_match('/info:fedora\/(.*):[0-9]{1,4}\/(.*)"/', $relsint, $matches);
+      
+      if ($matches[2]) {
+        preg_match('/hasThumbnail/', $relsint, $thumb);
+        if ($thumb[0]) {
+          preg_match_all('/has(.*) /', $relsint, $tests);
+          $test = count($tests[0]);
+          if ($test % 2 != 0) {
+            $missing = TRUE;
+          }
+        }
+      }
+      if ($missing) {
+         $missingarray[] = $pid;
+         $object->forget();
+      }
+      else {
+        $object->forget();
+      }
+    }
+    else {
+      $object->forget();
+    }
+  }
+  
+  if (!empty($missingarray)) {
+    foreach ($missingarray as $pid) {
+      preg_match('/(.*):/', $pid, $matches);
+      $objnamespace = $matches[1] . ':';
+      $allowednames = explode(' ', trim(variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: ')));
+      
+      if (in_array($objnamespace, $allowednames)) {
+        if (!empty($pids)) {
+          $intext = strpos($pid, $pids);
+        }
+        // Add to the pid textarea if doesn't already exist
+        if ($intext !== true) {
+          if (strlen($pids) != 0) {
+            $pids .= ', ' . $pid;
+          }
+          else {
+            $pids = $pid;
+          }
+        } 
+      }
+    }
+    
+  }
+  
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $form['pidtextarea']['#value'] = $pids;
+  Ahah::respond($form);
+  exit();
+}
+
 function islandora_derivatives_change_js() {
   module_load_include('inc', 'php_lib', 'Ahah');
   require_once('Stomp.php');
@@ -189,6 +390,74 @@ function islandora_derivatives_change_js() {
   exit();
 }
 
+function islandora_derivatives_add_collection_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+    
+  $pidselect = $_POST['collectionoptions'];
+  $pids = $_POST['pidtextarea'];
+    
+  if ($pidselect == 'default') {
+    drupal_set_message(t('No collection selected'), 'error');
+  }
+  else {
+    // We need to walk through the selected collection to get all children
+    // and then check to see if they already in the textarea
+    $itql_query = 'select $child from <#ri> where
+    (
+      walk (
+        $parent <fedora-rels-ext:isMemberOfCollection> <info:fedora/'.$pidselect.'>
+        and $child <fedora-rels-ext:isMemberOfCollection> $parent
+      )
+    or
+      walk (
+        $parent <fedora-rels-ext:isMemberOf> <info:fedora/'.$pidselect.'>
+        and $child <fedora-rels-ext:isMemberOf> $parent
+      )
+    )';
+    
+    module_load_include('inc', 'fedora_repository', 'CollectionClass');
+    $collectionClass = new CollectionClass();
+    $query_results = $collectionClass->getRelatedItems(NULL, $itql_query);
+    $xml_set = simplexml_load_string($query_results);
+    
+    foreach($xml_set->results->result as $result) {
+        $pid = (string) $result->child->attributes()->uri;
+        preg_match('/info:fedora\/(.*):/', $pid, $matches);
+        $objnamespace = $matches[1] . ':';
+        $allowednames = explode(' ', trim(variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: ')));
+
+        if (in_array($objnamespace, $allowednames)) {
+          $pid = str_replace('info:fedora/', '', $pid);
+          if (!empty($pids)) {
+            $intext = strpos($pid, $pids);
+          }
+          
+          // Add to the pid textarea if doesn't already exist
+          if ($intext !== true) {
+            if (strlen($pids) != 0) {
+              $pids .= ', ' . $pid;
+            }
+            else {
+              $pids = $pid;
+            }
+          }
+        }
+        if (strlen($pids) != 0) {
+              $pids .= ', ' . $pidselect;
+            }
+            else {
+              $pids = $pidselect;
+            }
+        
+    }  
+  }
+ $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+ $form['pidtextarea']['#value'] = $pids;
+ Ahah::respond($form);
+ exit();
+}
+
 function islandora_derivatives_stomp_avail($url) {
   try {
     $stomp = new Stomp($url);
@@ -198,3 +467,4 @@ function islandora_derivatives_stomp_avail($url) {
   }
   return true;
 }
+
