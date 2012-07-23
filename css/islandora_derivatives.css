@@ -2,3 +2,24 @@
   display: inline-block;
 }
 
+.progress-disabled {
+  float: none;
+  display:inline;
+}
+
+.ahah-progress {
+  float: none;
+  display:inline;
+ }
+
+.ahah-progress .throbber {
+  float: none;
+  display:inline-block;
+}
+
+tr .ahah-progress .throbber {
+  margin: 0 2px;
+}
+.ahah-progress-bar {
+  width: 16em;
+}
