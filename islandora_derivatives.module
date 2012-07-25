@@ -248,7 +248,7 @@ function islandora_derivatives_form($form_state) {
 function islandora_derivatives_find_missing_js() {
   module_load_include('inc', 'php_lib', 'Ahah');
   list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
-   dsm($form_state['storage'], 'storage');
+  
   if (!empty($form_state['post']['findmissing'])) {
     $checked = TRUE;
   }
