@@ -58,7 +58,6 @@ function islandora_derivatives_menu() {
  * @see islandora_derivatives_menu()
  */
 function islandora_derivatives_form($form_state) {
-  dsm($form_state, 'form_state');
   module_load_include('inc', 'php_lib', 'Ahah');
   require_once("Stomp.php");
   drupal_add_css(drupal_get_path('module', 'islandora_derivatives') . '/css/islandora_derivatives.css');
