@@ -316,41 +316,52 @@ function islandora_derivatives_find_missing_js() {
       // Used in updating the progress bar while searching takes place
       variable_set('islandora_derivatives_total_missing', count($resultpids));
       variable_set('islandora_derivatives_current_obj', 0);
+      $allowedds = array(
+        'DC' => 'DC',
+        'MODS' => 'MODS',
+        'RELS-INT' => 'RELS-INT',
+        'RELS-EXT' => 'RELS-EXT',
+        'POLICY' => 'POLICY',
+        'TN' => 'TN',
+        );
+      $allowedmime = array(
+        'gif' => 'image/gif',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'raw' => 'image/raw',
+        'tiff' => 'image/tiff',
+        'tif' => 'image/tif',
+        'x-raw' => 'image/x-raw',
+      );
       
       foreach ($resultpids as $pid) {
         variable_set('islandora_derivatives_current_obj', variable_get('islandora_derivatives_current_obj', '1') + 1);
         $object = new Fedora_Item($pid);
-
-        $relsint = $object->get_datastream_dissemination('RELS-INT');
         $missing = FALSE;
         
-        // Preg the RELS-INT to see if the object is missing derivatives. Modular
-        // division is used as we assume that if a thumbnail exists it must also have
-        // a derivative associated with it.
-        if ($relsint) {
-            preg_match('/info:fedora\/(.*):[0-9]{1,4}\/(.*)"/', $relsint, $matches);
-
-          if ($matches[2]) {
-            preg_match('/hasThumbnail/', $relsint, $thumb);
-            if ($thumb[0]) {
-              preg_match_all('/has(.*) /', $relsint, $tests);
-              $test = count($tests[0]);
-              if ($test % 2 != 0) {
+        
+        $dslist = $object->get_datastreams_list_as_array();
+        
+        foreach ($dslist as $dslabel => $datastream) {
+          if (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedmime)) {
+            if ($datastream['label'] != 'thumbnail') {
+              $tempthumb = $dslabel . '-tn.jpg';
+              $tempjp2 = $dslabel . '.jp2';
+                           
+              if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
                 $missing = TRUE;
               }
             }
           }
-          if ($missing) {
+        }
+        
+        if ($missing) {
             $missingarray[] = $pid;
             $object->forget();
           }
           else {
             $object->forget();
           }
-        }
-        else {
-          $object->forget();
-        }
       }
     }
     else {
@@ -548,12 +559,12 @@ function islandora_derivatives_submit_js() {
   $derivoptions = $_POST['derivoptions'];   
   
   try {
-    $stomp = new Stomp(variable_get('islandora_derivatives_stompurl', $defaultstomp));
+    $stomp = new Stomp(variable_get('islandora_derivatives_stompurl', $_POST['islandora_derivatives_stompurl']));
     $stomp->connect();
   } catch (Exception $e) {
     drupal_set_message(t("Unable to start process as the connection to Stomp at %stomp_url failed!",
         array(
-          '%stomp_url' => variable_get('islandora_derivatives_stompurl', $defaultstomp),
+          '%stomp_url' => variable_get('islandora_derivatives_stompurl', $_POST['islandora_derivatives_stompurl']),
         )
     ), error);
     $failedcon = TRUE;
