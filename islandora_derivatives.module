@@ -58,6 +58,7 @@ function islandora_derivatives_menu() {
  * @see islandora_derivatives_menu()
  */
 function islandora_derivatives_form($form_state) {
+  dsm($form_state, 'form_state');
   module_load_include('inc', 'php_lib', 'Ahah');
   require_once("Stomp.php");
   drupal_add_css(drupal_get_path('module', 'islandora_derivatives') . '/css/islandora_derivatives.css');
@@ -144,7 +145,7 @@ function islandora_derivatives_form($form_state) {
     ),
     'findmissing' => array(
       '#type' => 'checkbox',
-      '#title' => t('Include all missing derivatives?'),
+      '#title' => t('Include all objects missing image derivatives?'),
       '#weight' => 2,
       '#ahah' => array(
         'path' => 'admin/settings/islandora_derivatives/findmissing',
@@ -248,7 +249,7 @@ function islandora_derivatives_form($form_state) {
 function islandora_derivatives_find_missing_js() {
   module_load_include('inc', 'php_lib', 'Ahah');
   list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
-    
+   dsm($form_state['storage'], 'storage');
   if (!empty($form_state['post']['findmissing'])) {
     $checked = TRUE;
   }
@@ -325,13 +326,11 @@ function islandora_derivatives_find_missing_js() {
         'TN' => 'TN',
         );
       $allowedmime = array(
-        'gif' => 'image/gif',
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
-        'raw' => 'image/raw',
         'tiff' => 'image/tiff',
         'tif' => 'image/tif',
-        'x-raw' => 'image/x-raw',
+        'jp2' => 'image/jp2',
       );
       
       foreach ($resultpids as $pid) {
@@ -339,15 +338,33 @@ function islandora_derivatives_find_missing_js() {
         $object = new Fedora_Item($pid);
         $missing = FALSE;
         
-        
         $dslist = $object->get_datastreams_list_as_array();
         
         foreach ($dslist as $dslabel => $datastream) {
           if (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedmime)) {
-            if ($datastream['label'] != 'thumbnail') {
-              $tempthumb = $dslabel . '-tn.jpg';
-              $tempjp2 = $dslabel . '.jp2';
-                           
+            if ($datastream['label'] != 'thumbnail' && $datastream['label'] != 'Compressed JPEG2000') {
+              $extpos = strpos(strrev($dslabel), '.');
+                            
+              if ($extpos) {
+                $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
+                $templabel = strrev($templabel);
+              }
+              else {
+                $templabel = $dslabel;
+              }
+             
+              $tempthumb = $templabel . '-tn.jpg';
+              
+              if ($datastream['MIMEType'] != 'image/jp2') {
+                $tempjp2 = $templabel . '.jp2';
+              }
+              elseif ($dslabel == $templabel) {
+                $tempjp2 = $templabel . '.jp2';
+              }
+              else {
+                $tempjp2 = $templabel . '.d.jp2';
+              }
+                                         
               if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
                 $missing = TRUE;
               }
@@ -376,10 +393,10 @@ function islandora_derivatives_find_missing_js() {
 
         $derivs[] = $pid;
         if (!empty($pids)) {
-          $intext = strpos($pid, $pids);
+          $intext = strpos($pids, $pid);
         }
         // Add to the pid textarea if doesn't already exist
-        if ($intext !== true) {
+        if ($intext === false || empty($pids)) {
           if (strlen($pids) != 0) {
             $pids .= ', ' . $pid;
           }
@@ -394,7 +411,7 @@ function islandora_derivatives_find_missing_js() {
   if (!empty($missingarray)) {
     $form_state['storage']['missingderivs'] = $derivs;
   }
-  else {
+  elseif (!isset($form_state['storage']['missingderivs'])) {
     // Needed so that the query doesn't get executed
     $form_state['storage']['missingderivs'] = 'NONE';
   }
@@ -556,6 +573,7 @@ function islandora_derivatives_submit_js() {
   }
   
   $pids = $_POST['pidtextarea'];
+
   $derivoptions = $_POST['derivoptions'];   
   
   try {
@@ -608,6 +626,12 @@ function islandora_derivatives_submit_js() {
           $msgarray['pid'] = $value;          
           $stomp->send('/topic/islandora', json_encode($msgarray), $headers);
           $allowedoutput .= $value . " ";
+          
+          $pidkey = array_search($pid, $form_state['storage']['missingderivs']);
+          
+          if ($pidkey !== 0) {
+            unset($form_state['storage']['missingderivs'][$pidkey]);
+          }
         }         
       }
     }
