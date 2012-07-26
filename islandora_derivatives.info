@@ -1,7 +1,6 @@
 name = "Islandora Derivatives"
 description = "Allows the user to regenerate all derivatives or only missing derivatives given a list of specified PIDS"
 dependencies[] = fedora_repository
-dependencies[] = islandora_microservices
 version = 6.x-dev
 core = "6.x"
 package = Islandora Derivatives
