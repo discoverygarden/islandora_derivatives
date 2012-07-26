@@ -40,8 +40,32 @@ function islandora_derivatives_menu() {
      'access arguments' => array('administer site configuration'),
      'type' => MENU_CALLBACK,
   );
-   $items['admin/settings/islandora_derivatives/submit'] = array(
+  $items['admin/settings/islandora_derivatives/submit'] = array(
     'page callback' => 'islandora_derivatives_submit_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+   $items['admin/settings/islandora_derivatives/audioadd'] = array(
+    'page callback' => 'islandora_derivatives_audio_add_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+   $items['admin/settings/islandora_derivatives/videoadd'] = array(
+    'page callback' => 'islandora_derivatives_video_add_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/islandora_derivatives/docadd'] = array(
+    'page callback' => 'islandora_derivatives_doc_add_js',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/islandora_derivatives/imageadd'] = array(
+    'page callback' => 'islandora_derivatives_image_add_js',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
     'access arguments' => array('administer site configuration'),
@@ -61,7 +85,9 @@ function islandora_derivatives_form($form_state) {
   module_load_include('inc', 'php_lib', 'Ahah');
   require_once("Stomp.php");
   drupal_add_css(drupal_get_path('module', 'islandora_derivatives') . '/css/islandora_derivatives.css');
-    
+  AHAH::get_ahah_js();
+  
+  
   $tempstomp = variable_get('fedora_soap_url', 'http://localhost:8080/fedora/services/access?wsdl');
   preg_match('#\/\/(.*):#', $tempstomp, $matches);
   $defaultstomp = 'tcp://' . $matches[1] . ':61613';
@@ -142,21 +168,6 @@ function islandora_derivatives_form($form_state) {
       '#options' => $options,
       '#weight' => 1,
     ),
-    'findmissing' => array(
-      '#type' => 'checkbox',
-      '#title' => t('Include all objects missing image derivatives?'),
-      '#weight' => 2,
-      '#ahah' => array(
-        'path' => 'admin/settings/islandora_derivatives/findmissing',
-        'wrapper' => 'islandora_derivatives',
-        'progress' => array(
-          'type' => 'bar',
-          'message' => t('Searching..'),
-          'interval' => 1,
-          'url' => '/admin/settings/islandora_derivatives/status'
-        ),
-      ),
-    ),
     'collectionoptions' => array(
       '#type' => 'select',
       '#title' => t('Select a collection to recursively go through'),
@@ -214,7 +225,178 @@ function islandora_derivatives_form($form_state) {
         ),
       )
     ),
-  );     
+  );
+    
+  if (!isset($form_state['storage']['findmissing'])) {
+    $form['findmissing'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Search for all objects missing derivatives?'),
+      '#weight' => 2,
+      '#ahah' => array(
+        'path' => 'admin/settings/islandora_derivatives/findmissing',
+        'wrapper' => 'islandora_derivatives',
+        'progress' => array(
+          'type' => 'bar',
+          'message' => t('Searching..'),
+          'interval' => 1,
+          'url' => '/admin/settings/islandora_derivatives/status'
+        ),
+      ),
+    );
+  }
+  
+  if (isset($form_state['storage']['missingderivs'])) {
+    $form['missingderivfield'] = array(
+      '#title' => t('Missing derivatives'),
+      '#type' => 'fieldset',
+      '#tree' => TRUE,
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+      '#weight' => 2,
+    );
+    
+    // Check the form state to see which fieldsets need to be created
+    if (count($form_state['storage']['missingderivs']['aud']) > 0) {
+      foreach($form_state['storage']['missingderivs']['aud'] as $pidtext) {
+        if (!empty($pidtext)) {
+          if (empty($pidlist)) {
+            $pidlist = $pidtext;
+          }
+          else {
+            $pidlist .= ', ' . $pidtext;
+          }
+        }
+      }
+      $form['missingderivfield']['audio'] = array(
+        '#title' => t('Audio'),
+        '#type' => 'fieldset',
+        '#tree' => TRUE,
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        'audtextarea' => array(
+          '#type' => 'textarea',
+          '#value' => $pidlist,
+          '#disabled' => TRUE,
+        ),
+        'audioadd' => array(
+          '#type' => 'checkbox',
+          '#name' => 'islandora_derivatives_audio_box',
+          '#title' => t('Add to textarea?'),
+          '#weight' => 6,
+          '#ahah' => array(
+              'path' => 'admin/settings/islandora_derivatives/audioadd',
+              'wrapper' => 'islandora_derivatives',
+          ),
+        ),
+      );
+    }
+    
+    if (count($form_state['storage']['missingderivs']['vid']) > 0) {
+      foreach($form_state['storage']['missingderivs']['vid'] as $vidtext) {
+        if (!empty($vidtext)) {
+          if (empty($vidlist)) {
+            $vidlist = $vidtext;
+          }
+          else {
+            $vidlist .= ', ' . $vidtext;
+          }
+        }
+      }
+      
+      $form['missingderivfield']['video'] = array(
+        '#title' => t('Video'),
+        '#type' => 'fieldset',
+        '#tree' => TRUE,
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        'vidtextarea' => array(
+          '#type' => 'textarea',
+          '#value' => $vidlist,
+          '#disabled' => TRUE,
+        ),
+        'videoadd' => array(
+          '#type' => 'checkbox',
+          '#name' => 'islandora_derivatives_video_box',
+          '#title' => t('Add to textarea?'),
+          '#weight' => 6,
+          '#ahah' => array(
+              'path' => 'admin/settings/islandora_derivatives/videoadd',
+              'wrapper' => 'islandora_derivatives',
+          ),
+        ),
+      );
+    }
+    
+    if (count($form_state['storage']['missingderivs']['doc']) > 0) {
+      foreach($form_state['storage']['missingderivs']['doc'] as $doctext) {
+        if (!empty($doctext)) {
+          if (empty($doclist)) {
+            $doclist = $doctext;
+          }
+          else {
+            $doclist .= ', ' . $doctext;
+          }
+        }
+      }
+      $form['missingderivfield']['doc'] = array(
+        '#title' => t('Documents'),
+        '#type' => 'fieldset',
+        '#tree' => TRUE,
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        'doctextarea' => array(
+          '#type' => 'textarea',
+          '#value' => $doclist,
+          '#disabled' => TRUE,
+        ),
+        'docadd' => array(
+          '#type' => 'checkbox',
+          '#name' => 'islandora_derivatives_doc_box',
+          '#title' => t('Add to textarea?'),
+          '#weight' => 6,
+          '#ahah' => array(
+              'path' => 'admin/settings/islandora_derivatives/docadd',
+              'wrapper' => 'islandora_derivatives',
+          ),
+        ),  
+      );
+    }
+    
+    if (count($form_state['storage']['missingderivs']['img']) > 0) {
+      foreach($form_state['storage']['missingderivs']['img'] as $imgtext) {
+        if (!empty($imgtext)) {
+          if (empty($imglist)) {
+            $imglist = $imgtext;
+          }
+          else {
+            $imglist .= ', ' . $imgtext;
+          }
+        }
+      }
+      $form['missingderivfield']['img'] = array(
+        '#title' => t('Images'),
+        '#type' => 'fieldset',
+        '#tree' => TRUE,
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        'imgtextarea' => array(
+          '#type' => 'textarea',
+          '#value' => $imglist,
+          '#disabled' => TRUE,
+        ),
+        'imgadd' => array(
+          '#type' => 'checkbox',
+          '#name' => 'islandora_derivatives_audio_box',
+          '#title' => t('Add to textarea?'),
+          '#weight' => 6,
+          '#ahah' => array(
+              'path' => 'admin/settings/islandora_derivatives/imageadd',
+              'wrapper' => 'islandora_derivatives',
+          ),
+        ),  
+      );
+    }
+  }
   
   // Determine whether the current URL is able to connect to Stomp
   if (islandora_derivatives_stomp_avail(variable_get('islandora_derivatives_stompurl', $defaultstomp))) {
@@ -240,7 +422,7 @@ function islandora_derivatives_form($form_state) {
 }
 
 /**
- * AHAH callback that searches for and displays all the objects that are missing
+ * AHAH callback that searches for all the objects that are missing
  * derivatives.
  * 
  * @see islandora_derivatives_menu() 
@@ -249,13 +431,10 @@ function islandora_derivatives_find_missing_js() {
   module_load_include('inc', 'php_lib', 'Ahah');
   list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
   
-  if (!empty($form_state['post']['findmissing'])) {
-    $checked = TRUE;
-  }
   $pids = $form_state['post']['pidtextarea'];
   $derivoptions = $_POST['derivoptions'];
-    
-  if ($checked == FALSE && !empty($pids) && $form_state['storage']['missingderivs'] != 'NONE') {
+      
+  if (!empty($pids)) {
     $pids = str_replace(',', ' ', $pids);
     foreach($form_state['storage']['missingderivs'] as $pid) {
       $pids = str_replace($pid, '', $pids);
@@ -277,10 +456,6 @@ function islandora_derivatives_find_missing_js() {
     }
     $pids = $pidlist;
   }
-  // Previous query resulted in no objects missing derivatives
-  elseif ($form_state['storage']['missingderivs'] == 'NONE') {
-    drupal_set_message(t('There are no objects with missing derivatives in the allowed namespaces!'));
-  }
   // Search for objects missing derivatives
   else {
     if (!isset($form_state['storage']['missingderivs'])) {
@@ -298,7 +473,12 @@ function islandora_derivatives_find_missing_js() {
       $query_results = $collectionClass->getRelatedItems(NULL, $itql_query);
 
       $xml_set = simplexml_load_string($query_results);
-      $missingarray = array();
+      $missingarray = array(
+        'img' => array(),
+        'doc' => array(),
+        'vid' => array(),
+        'aud' => array(),
+      );
            
       foreach ($xml_set->results->result as $result) {
         $pid = $result->object->attributes()->uri;
@@ -324,14 +504,36 @@ function islandora_derivatives_find_missing_js() {
         'POLICY' => 'POLICY',
         'TN' => 'TN',
         );
-      $allowedmime = array(
+      $allowedimg = array(
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
         'tiff' => 'image/tiff',
         'tif' => 'image/tif',
         'jp2' => 'image/jp2',
       );
+      $alloweddoc = array(
+        'pdf' => 'application/pdf',
+        'ppt' => 'application/vnd.ms-powerpoint',
+        'xls' => 'application/vnd.ms-excel',
+        'word' => 'application/msword',
+        'rtf' => 'text/rtf',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      $allowedaud = array(
+        'mpeg' => 'audio/mpeg',
+        'xwav' => 'audio/x-wave',
+        'vndwave' => 'audio/vnd.wave',
+      );
+      $allowedvid = array(
+        'mp4' => 'video/mp4',
+        'mov' => 'video/quicktime',
+        'wmv' => 'video/x-ms-wmv',
+      );
       
+      // Go through and determine which objects are missing derivatives based 
+      // upon the conditions in which microservices checks on.
       foreach ($resultpids as $pid) {
         variable_set('islandora_derivatives_current_obj', variable_get('islandora_derivatives_current_obj', '1') + 1);
         $object = new Fedora_Item($pid);
@@ -340,10 +542,48 @@ function islandora_derivatives_find_missing_js() {
         $dslist = $object->get_datastreams_list_as_array();
         
         foreach ($dslist as $dslabel => $datastream) {
-          if (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedmime)) {
-            if ($datastream['label'] != 'thumbnail' && $datastream['label'] != 'Compressed JPEG2000') {
+          if (!in_array($dslabel, $allowedds)) {
+            if (in_array($datastream['MIMEType'], $allowedimg)) {
+              if ($datastream['label'] != 'thumbnail' && $datastream['label'] != 'Compressed JPEG2000') {
+                $extpos = strpos(strrev($dslabel), '.');
+
+                if ($extpos) {
+                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
+                  $templabel = strrev($templabel);
+                }
+                else {
+                  $templabel = $dslabel;
+                }
+                
+                $tempthumb = $templabel . '-tn.jpg';
+
+                if ($datastream['MIMEType'] != 'image/jp2') {
+                  $tempjp2 = $templabel . '.jp2';
+                }
+                elseif ($dslabel == $templabel) {
+                  $tempjp2 = $templabel . '.jp2';
+                }
+                else {
+                  $tempjp2 = $templabel . '.d.jp2';
+                }
+
+                if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
+                  $missing = TRUE;
+                  $outputarray = array(
+                    'tempjp2' => $tempjp2,
+                    'dslabel' => $dslabel,
+                    'templabel' => $templabel,
+                  );
+                 
+                  if (!in_array($pid, $missingarray['img'])) {
+                    $missingarray['img'][] = $pid;
+                  }
+                }
+              }
+            }
+            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $alloweddoc)) {
               $extpos = strpos(strrev($dslabel), '.');
-                            
+
               if ($extpos) {
                 $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
                 $templabel = strrev($templabel);
@@ -351,71 +591,131 @@ function islandora_derivatives_find_missing_js() {
               else {
                 $templabel = $dslabel;
               }
-             
+
               $tempthumb = $templabel . '-tn.jpg';
-              
-              if ($datastream['MIMEType'] != 'image/jp2') {
-                $tempjp2 = $templabel . '.jp2';
-              }
-              elseif ($dslabel == $templabel) {
-                $tempjp2 = $templabel . '.jp2';
-              }
-              else {
-                $tempjp2 = $templabel . '.d.jp2';
-              }
-                                         
-              if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
+              $tempswf = $templabel . '.swf';
+
+              if (!array_key_exists($tempswf, $dslist) || !array_key_exists($tempthumb, $dslist)) {
                 $missing = TRUE;
+                $outputarray = array(
+                  'tempswf' => $tempswf,
+                );
+                if (!in_array($pid, $missingarray['doc'])) {
+                    $missingarray['doc'][] = $pid;
+                }
+              }
+            }
+            // Video derivative standard currently in islandora_microservices
+            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedvid)) {
+              if ($datastream['label'] != 'compressed mp4') {  
+                $extpos = strpos(strrev($dslabel), '.');
+
+                if ($extpos) {
+                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
+                  $templabel = strrev($templabel);
+                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
+                }
+                else {
+                  $templabel = $dslabel;
+                }
+
+                $tempthumb = $templabel . '-tn.jpg';
+                
+                if ($datastream['MIMEType'] != 'video/mp4' || $extension != '.mp4') {
+                  $tempmp4 = $templabel . '.mp4';
+                }
+                elseif ($dslabel == $templabel) {
+                  $tempmp4 = $templabel . '.mp4';
+                }
+                else {
+                  $tempmp4 = $templabel . '.d.mp4';
+                }
+
+                if (!array_key_exists($tempmp4, $dslist) || !array_key_exists($tempthumb, $dslist)) {
+                  $missing = TRUE;
+                  $outputarray = array(
+                    'tempmp4' => $tempmp4,
+                    'dslabel' => $dslabel,
+                    'templabel' => $templabel,
+                    'extension' => $extension,
+                  );
+                  
+                  if (!in_array($pid, $missingarray['vid'])) {
+                    $missingarray['vid'][] = $pid;
+                  }
+                }
+              }  
+            }
+            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedaud)) {
+              if ($datastream['label'] != 'compressed to mp3' && $datastream['label'] != 'compressed to ogg') {
+                $extpos = strpos(strrev($dslabel), '.');
+
+                if ($extpos) {
+                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
+                  $templabel = strrev($templabel);
+                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
+                }
+                else {
+                  $templabel = $dslabel;
+                }
+
+                if ($dslabel == $templabel) {
+                  $tempmp3 = $templabel . '.mp3';
+                  $tempogg = $templabel . '.ogg';
+                }
+                else {
+                    if ($extension == 'mp3') {
+                      $tempmp3 = $templabel . '.d.mp3';
+                      $tempogg = $templabel . '.ogg';
+                    }
+                    elseif ($extension == 'ogg') {
+                      $tempogg = $templabel . '.d.ogg';
+                      $tempmp3 = $templabel . '.mp3';
+                    }
+                    else {
+                      $tempogg = $templabel . '.ogg';
+                      $tempmp3 = $templabel . '.mp3';
+                    }
+                }
+      
+                if (!array_key_exists($tempmp3, $dslist) || !array_key_exists($tempogg, $dslist)) {
+                  $missing = TRUE;
+                  $outputarray = array(
+                    'tempmp3' => $tempmp3,
+                    'tempogg' => $tempogg,
+                    'templabel' => $templabel,
+                    'dslabel' => $dslabel,
+                    'dslist' => $dslist,
+                  );
+                  
+                  if (!in_array($pid, $missingarray['aud'])) {
+                    $missingarray['aud'][] = $pid;
+                  }
+                }
               }
             }
           }
         }
         
         if ($missing) {
-            $missingarray[] = $pid;
-            $object->forget();
-          }
-          else {
-            $object->forget();
-          }
+          $object->forget();
+        }
+        else {
+          $object->forget();
+        }
       }
+    }
+        
+    if (empty($missingarray)) {
+      drupal_set_message(t('There are no objects with missing derivatives in the allowed namespaces!'));
     }
     else {
-     $missingarray = $form_state['storage']['missingderivs']; 
+      $form_state['storage']['missingderivs'] = $missingarray;
     }
+    $form_state['storage']['findmissing'] = 'RAN';
+  }
     
-    if (!empty($missingarray)) {
-      foreach ($missingarray as $pid) {
-        preg_match('/(.*):/', $pid, $matches);
-        $objnamespace = $matches[1] . ':';
-        $allowednames = explode(' ', trim(variable_get('fedora_pids_allowed', 'default: demo: changeme: islandora: ilives: islandora-book: books: newspapers: ')));
-
-        $derivs[] = $pid;
-        if (!empty($pids)) {
-          $intext = strpos($pids, $pid);
-        }
-        // Add to the pid textarea if doesn't already exist
-        if ($intext === false || empty($pids)) {
-          if (strlen($pids) != 0) {
-            $pids .= ', ' . $pid;
-          }
-          else {
-            $pids = $pid;
-          }
-        } 
-      }
-    }
-  }
-  
-  if (!empty($missingarray)) {
-    $form_state['storage']['missingderivs'] = $derivs;
-  }
-  elseif (!isset($form_state['storage']['missingderivs'])) {
-    // Needed so that the query doesn't get executed
-    $form_state['storage']['missingderivs'] = 'NONE';
-  }
   $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
-  $form['pidtextarea']['#value'] = $pids;
   $form['findmissing']['#value'] = $checked;
   $form['derivoptions']['#value'] = $derivoptions;
     
@@ -626,10 +926,13 @@ function islandora_derivatives_submit_js() {
           $stomp->send('/topic/islandora', json_encode($msgarray), $headers);
           $allowedoutput .= $value . " ";
           
-          $pidkey = array_search($pid, $form_state['storage']['missingderivs']);
-          
-          if ($pidkey !== 0) {
-            unset($form_state['storage']['missingderivs'][$pidkey]);
+          // Search for stored value and remove if found
+          foreach ($form_state['storage']['missingderivs'] as $key => $type) {
+            $pidkey = array_search($pid, $form_state['storage']['missingderivs'][$key]);
+                     
+            if ($pidkey !== 0) {
+              unset($form_state['storage']['missingderivs'][$key][$pidkey]);
+            }
           }
         }         
       }
@@ -656,9 +959,335 @@ function islandora_derivatives_submit_js() {
   }  
   
   $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
-  $form['pidtextarea']['#value'] = $pids;
   $form['derivoptions']['#value'] = $derivoptions;
-  $form['findmissing']['#value'] = $checked;
   Ahah::respond($form);
   exit();
 }
+
+/**
+ * AHAH callback that adds or removes all missing audio objects to the textarea
+ * 
+ * @see islandora_derivatives_menu() 
+ */
+function islandora_derivatives_audio_add_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+  
+  if (!empty($form_state['post']['findmissing'])) {
+    $checked = TRUE;
+  }
+  $form_state['storage']['findmissing'] = 'NOPE';
+  
+  $pids = $form_state['post']['pidtextarea'];
+  $derivoptions = $_POST['derivoptions'];
+  
+  if ($form_state['post']['islandora_derivatives_audio_box'] == 1) {
+    $form_state['storage']['derivboxes']['audio'] = 1;  
+  }
+  else {
+    $form_state['storage']['derivboxes']['audio'] = 0;  
+  }
+  
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $form['derivoptions']['#value'] = $derivoptions;
+   
+  // Remember the user's checkboxes
+  if (isset($form_state['storage']['derivboxes'])) {
+    foreach ($form_state['storage']['derivboxes'] as $key => $value) {
+      $form['missingderivfield'][$key][$key.'add']['#value'] = $value;
+    }
+  }
+  
+  $audpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['audio']['audtextarea']['#value']));
+  $curpids = trim($form_state['post']['pidtextarea']);
+  
+  if ($form_state['post']['islandora_derivatives_audio_box'] == 1) {
+    $form['missingderivfield']['audio']['audioadd']['#value'] = 1;
+      
+    foreach ($audpidsarray as $audpid) {
+        $intext = strpos($curpids, $audpid);
+          
+        // Add to the pid textarea if doesn't already exist
+        if ($intext === false || empty($curpids)) {
+          if (strlen($curpids) != 0) {
+            $curpids .= ', ' . $audpid;
+          }
+          else {
+            $curpids = $audpid;
+          }
+        }
+      }
+  }
+  else {
+    $curpids = str_replace(',', ' ', $curpids);
+    foreach ($audpidsarray as $audpid) {
+      $curpids = str_replace($audpid, '', $curpids);
+    }
+    $curpids = trim($curpids);
+    
+    // This allows for any other values present besides the missing derivs to be
+    // retained and outputted. Allows for variable whitespacing inbetween the commas
+    $pidoutput = explode(' ', $curpids);
+    foreach($pidoutput as $pidtext) {
+      if (!empty($pidtext)) {
+        if (empty($pidlist)) {
+          $pidlist = $pidtext;
+        }
+        else {
+          $pidlist .= ', ' . $pidtext;
+        }
+      }
+    }
+    $curpids = $pidlist;
+  }
+  $form['pidtextarea']['#value'] = $curpids;
+  Ahah::respond($form);
+  exit();
+}
+
+/**
+ * AHAH callback that adds or removes all missing video objects to the textarea
+ * 
+ * @see islandora_derivatives_menu() 
+ */
+function islandora_derivatives_video_add_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+ 
+  if (!empty($form_state['post']['findmissing'])) {
+    $checked = TRUE;
+  }
+  $form_state['storage']['findmissing'] = 'NOPE';
+  $pids = $form_state['post']['pidtextarea'];
+  $derivoptions = $_POST['derivoptions'];
+  
+  if ($form_state['post']['islandora_derivatives_video_box'] == 1) {
+    $form_state['storage']['derivboxes']['video'] = 1;  
+  }
+  else {
+    $form_state['storage']['derivboxes']['video'] = 0;  
+  }
+  
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $form['derivoptions']['#value'] = $derivoptions;
+  $form['missingderivfield']['video']['#collapsed'] = FALSE;
+  
+  // Remember the user's checkboxes
+  if (isset($form_state['storage']['derivboxes'])) {
+    foreach ($form_state['storage']['derivboxes'] as $key => $value) {
+      $form['missingderivfield'][$key][$key.'add']['#value'] = $value;
+    }
+  }
+  
+  $vidpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['video']['vidtextarea']['#value']));
+  $curpids = trim($form_state['post']['pidtextarea']);
+  
+  if ($form_state['post']['islandora_derivatives_video_box'] == 1) {
+    $form['missingderivfield']['video']['videoadd']['#value'] = 1;
+        
+    foreach ($vidpidsarray as $vidpid) {
+        $intext = strpos($curpids, $vidpid);
+          
+        // Add to the pid textarea if doesn't already exist
+        if ($intext === false || empty($curpids)) {
+          if (strlen($curpids) != 0) {
+            $curpids .= ', ' . $vidpid;
+          }
+          else {
+            $curpids = $vidpid;
+          }
+        }
+      }
+  }
+  else {
+   $curpids = str_replace(',', ' ', $curpids);
+    foreach ($vidpidsarray as $vidpid) {
+      $curpids = str_replace($vidpid, '', $curpids);
+    }
+    $curpids = trim($curpids);
+    
+    // This allows for any other values present besides the missing derivs to be
+    // retained and outputted. Allows for variable whitespacing inbetween the commas
+    $pidoutput = explode(' ', $curpids);
+    foreach($pidoutput as $pidtext) {
+      if (!empty($pidtext)) {
+        if (empty($pidlist)) {
+          $pidlist = $pidtext;
+        }
+        else {
+          $pidlist .= ', ' . $pidtext;
+        }
+      }
+    }
+    $curpids = $pidlist;
+  }
+        
+  $form['pidtextarea']['#value'] = $curpids;
+  Ahah::respond($form);
+  exit();
+}
+
+/**
+ * AHAH callback that adds or removes all missing document objects to the textarea
+ * 
+ * @see islandora_derivatives_menu() 
+ */
+function islandora_derivatives_doc_add_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+ 
+  if (!empty($form_state['post']['findmissing'])) {
+    $checked = TRUE;
+  }
+  $form_state['storage']['findmissing'] = 'NOPE';
+  $pids = $form_state['post']['pidtextarea'];
+  $derivoptions = $_POST['derivoptions'];
+  
+  if ($form_state['post']['islandora_derivatives_doc_box'] == 1) {
+    $form_state['storage']['derivboxes']['doc'] = 1;  
+  }
+  else {
+    $form_state['storage']['derivboxes']['doc'] = 0;  
+  }
+  
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $form['derivoptions']['#value'] = $derivoptions;
+  $form['missingderivfield']['doc']['#collapsed'] = FALSE;
+  
+  // Remember the user's checkboxes
+  if (isset($form_state['storage']['derivboxes'])) {
+    foreach ($form_state['storage']['derivboxes'] as $key => $value) {
+      $form['missingderivfield'][$key][$key.'add']['#value'] = $value;
+    }
+  }
+  
+  $docpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['doc']['doctextarea']['#value']));
+  $curpids = trim($form_state['post']['pidtextarea']);
+  
+  if ($form_state['post']['islandora_derivatives_doc_box'] == 1) {
+    $form['missingderivfield']['doc']['docadd']['#value'] = 1;
+        
+    foreach ($docpidsarray as $docpid) {
+        $intext = strpos($curpids, $docpid);
+          
+        // Add to the pid textarea if doesn't already exist
+        if ($intext === false || empty($curpids)) {
+          if (strlen($curpids) != 0) {
+            $curpids .= ', ' . $docpid;
+          }
+          else {
+            $curpids = $docpid;
+          }
+        }
+      }
+  }
+  else {
+   $curpids = str_replace(',', ' ', $curpids);
+    foreach ($docpidsarray as $docpid) {
+      $curpids = str_replace($docpid, '', $curpids);
+    }
+    $curpids = trim($curpids);
+    
+    // This allows for any other values present besides the missing derivs to be
+    // retained and outputted. Allows for variable whitespacing inbetween the commas
+    $pidoutput = explode(' ', $curpids);
+    foreach($pidoutput as $pidtext) {
+      if (!empty($pidtext)) {
+        if (empty($pidlist)) {
+          $pidlist = $pidtext;
+        }
+        else {
+          $pidlist .= ', ' . $pidtext;
+        }
+      }
+    }
+    $curpids = $pidlist;
+  }
+        
+  $form['pidtextarea']['#value'] = $curpids;
+  Ahah::respond($form);
+  exit();
+}
+
+/**
+ * AHAH callback that adds or removes all missing image objects to the textarea
+ * 
+ * @see islandora_derivatives_menu() 
+ */
+function islandora_derivatives_img_add_js() {
+  module_load_include('inc', 'php_lib', 'Ahah');
+  list($form_id, $form_build_id, $form, $form_state) = Ahah::getFormInfo();
+ 
+  if (!empty($form_state['post']['findmissing'])) {
+    $checked = TRUE;
+  }
+  $form_state['storage']['findmissing'] = 'NOPE';
+  $pids = $form_state['post']['pidtextarea'];
+  $derivoptions = $_POST['derivoptions'];
+  
+  if ($form_state['post']['islandora_derivatives_img_box'] == 1) {
+    $form_state['storage']['derivboxes']['img'] = 1;  
+  }
+  else {
+    $form_state['storage']['derivboxes']['img'] = 0;  
+  }
+  
+  $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
+  $form['derivoptions']['#value'] = $derivoptions;
+  $form['missingderivfield']['img']['#collapsed'] = FALSE;
+  
+  // Remember the user's checkboxes
+  if (isset($form_state['storage']['derivboxes'])) {
+    foreach ($form_state['storage']['derivboxes'] as $key => $value) {
+      $form['missingderivfield'][$key][$key.'add']['#value'] = $value;
+    }
+  }
+  
+  $imgpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['img']['img']['#value']));
+  $curpids = trim($form_state['post']['pidtextarea']);
+  
+  if ($form_state['post']['islandora_derivatives_img_box'] == 1) {
+    $form['missingderivfield']['img']['imgadd']['#value'] = 1;
+        
+    foreach ($imgpidsarray as $imgpid) {
+        $intext = strpos($curpids, $imgpid);
+          
+        // Add to the pid textarea if doesn't already exist
+        if ($intext === false || empty($curpids)) {
+          if (strlen($curpids) != 0) {
+            $curpids .= ', ' . $imgpid;
+          }
+          else {
+            $curpids = $imgpid;
+          }
+        }
+      }
+  }
+  else {
+   $curpids = str_replace(',', ' ', $curpids);
+    foreach ($imgpidsarray as $imgpid) {
+      $curpids = str_replace($imgpid, '', $curpids);
+    }
+    $curpids = trim($curpids);
+    
+    // This allows for any other values present besides the missing derivs to be
+    // retained and outputted. Allows for variable whitespacing inbetween the commas
+    $pidoutput = explode(' ', $curpids);
+    foreach($pidoutput as $pidtext) {
+      if (!empty($pidtext)) {
+        if (empty($pidlist)) {
+          $pidlist = $pidtext;
+        }
+        else {
+          $pidlist .= ', ' . $pidtext;
+        }
+      }
+    }
+    $curpids = $pidlist;
+  }
+        
+  $form['pidtextarea']['#value'] = $curpids;
+  Ahah::respond($form);
+  exit();
+}
+
