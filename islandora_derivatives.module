@@ -897,6 +897,7 @@ function islandora_derivatives_submit_js() {
     else {
       drupal_set_message(t('You must select an option on how to regenerate derivatives'), 'error');
       $noderiv = TRUE;
+      $failed = TRUE;
     }
     
     if (!empty($pids) && $noderiv == FALSE) {
@@ -926,19 +927,22 @@ function islandora_derivatives_submit_js() {
           $stomp->send('/topic/islandora', json_encode($msgarray), $headers);
           $allowedoutput .= $value . " ";
           
-          // Search for stored value and remove if found
-          foreach ($form_state['storage']['missingderivs'] as $key => $type) {
-            $pidkey = array_search($pid, $form_state['storage']['missingderivs'][$key]);
-                     
-            if ($pidkey !== 0) {
-              unset($form_state['storage']['missingderivs'][$key][$pidkey]);
+          if (isset($form_state['storage']['missingderivs'])) {
+            // Search for stored value and remove if found
+            foreach ($form_state['storage']['missingderivs'] as $key => $type) {
+              $pidkey = array_search($pid, $form_state['storage']['missingderivs'][$key]);
+
+              if ($pidkey !== 0) {
+                unset($form_state['storage']['missingderivs'][$key][$pidkey]);
+              }
             }
-          }
+          }  
         }         
       }
     }
     elseif (empty($pids)) {
       drupal_set_message(t('At least one PID must be entered in order to proceed'), 'error');
+      $failed = TRUE;
     }
     
     if (!empty($failedderivs)) {
@@ -960,6 +964,9 @@ function islandora_derivatives_submit_js() {
   
   $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
   $form['derivoptions']['#value'] = $derivoptions;
+  if ($failed) {
+    $form['pidtextarea']['#value'] = $pids;
+  }
   Ahah::respond($form);
   exit();
 }
