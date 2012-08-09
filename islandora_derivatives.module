@@ -65,7 +65,7 @@ function islandora_derivatives_menu() {
     'access arguments' => array('administer site configuration'),
   );
   $items['admin/settings/islandora_derivatives/imageadd'] = array(
-    'page callback' => 'islandora_derivatives_image_add_js',
+    'page callback' => 'islandora_derivatives_img_add_js',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
     'access arguments' => array('administer site configuration'),
@@ -154,8 +154,8 @@ function islandora_derivatives_form($form_state) {
   }
    
   $options['default'] = t('-- Select an option --');
-  $options['all'] = t('All derivatives');
-  $options['missing'] = t('Only missing derivatives');
+  $options['all'] = t('Regenerate all derivatives');
+  $options['missing'] = t('Generate missing derivatives');
   
   $form = array(
     '#title' => t('Islandora Derivatives'),
@@ -164,27 +164,27 @@ function islandora_derivatives_form($form_state) {
     '#action' => '/admin/settings/islandora_derivatives',
     'derivoptions' => array(
       '#type' => 'select',
-      '#title' => t('Select an option of regenerating derivatives'),
+      '#title' => t('Select an action for these PIDs'),
       '#options' => $options,
-      '#weight' => 1,
+      '#weight' => 5,
     ),
     'collectionoptions' => array(
       '#type' => 'select',
-      '#title' => t('Select a collection to recursively go through'),
+      '#title' => t('Select PIDs from a collection'),
       '#options' => $collectionlist,
       '#prefix' => '<div class="islandora_derivatives_collection_list">',
       '#suffix' => '</div>',
-      '#weight' => 3,
+      '#weight' => 2,
     ),
     'collectionadd' => array(
-      '#type' => 'image_button',
-        '#src' => drupal_get_path('module', 'islandora_derivatives') . '/images/add.png', 
-        '#ahah' => array(
-          'event' => 'click',
-          'path' => 'admin/settings/islandora_derivatives/addcollection',
-          'wrapper' => 'islandora_derivatives',
-        ),
-      '#weight' => 4,
+      '#type' => 'button',
+      '#value' => t('Add PIDs to processing list?'),
+      '#ahah' => array(
+        'event' => 'click',
+        'path' => 'admin/settings/islandora_derivatives/addcollection',
+        'wrapper' => 'islandora_derivatives',
+      ),
+      '#weight' => 2,
     ),
     'pidtextarea' => array(
       '#type' => 'textarea',
@@ -193,7 +193,7 @@ function islandora_derivatives_form($form_state) {
           array(
           '%namespaces' => $namespaces,  
           )),
-      '#weight' => 5,
+      '#weight' => 4,
     ),
     'submit' => array(
       '#type' => 'submit',
@@ -229,9 +229,9 @@ function islandora_derivatives_form($form_state) {
     
   if (!isset($form_state['storage']['findmissing'])) {
     $form['findmissing'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('Search for all objects missing derivatives?'),
-      '#weight' => 2,
+      '#type' => 'button',
+      '#value' => t('Search for all objects missing derivatives?'),
+      '#weight' => 1,
       '#ahah' => array(
         'path' => 'admin/settings/islandora_derivatives/findmissing',
         'wrapper' => 'islandora_derivatives',
@@ -252,7 +252,7 @@ function islandora_derivatives_form($form_state) {
       '#tree' => TRUE,
       '#collapsible' => TRUE,
       '#collapsed' => FALSE,
-      '#weight' => 2,
+      '#weight' => 1,
     );
     
     // Check the form state to see which fieldsets need to be created
@@ -281,7 +281,7 @@ function islandora_derivatives_form($form_state) {
         'audioadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_audio_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/audioadd',
@@ -317,7 +317,7 @@ function islandora_derivatives_form($form_state) {
         'videoadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_video_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/videoadd',
@@ -352,7 +352,7 @@ function islandora_derivatives_form($form_state) {
         'docadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_doc_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/docadd',
@@ -386,8 +386,8 @@ function islandora_derivatives_form($form_state) {
         ),
         'imgadd' => array(
           '#type' => 'checkbox',
-          '#name' => 'islandora_derivatives_audio_box',
-          '#title' => t('Add to textarea?'),
+          '#name' => 'islandora_derivatives_img_box',
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/imageadd',
@@ -510,6 +510,7 @@ function islandora_derivatives_find_missing_js() {
         'tiff' => 'image/tiff',
         'tif' => 'image/tif',
         'jp2' => 'image/jp2',
+        // Need to look at GIFs in microservices 'gif' => 'image/gif',
       );
       $alloweddoc = array(
         'pdf' => 'application/pdf',
@@ -531,15 +532,89 @@ function islandora_derivatives_find_missing_js() {
         'mov' => 'video/quicktime',
         'wmv' => 'video/x-ms-wmv',
       );
-      
+      $combinedmimes = array_merge($allowedimg, $alloweddoc, $allowedaud, $allowedvid);
       // Go through and determine which objects are missing derivatives based 
       // upon the conditions in which microservices checks on.
       foreach ($resultpids as $pid) {
         variable_set('islandora_derivatives_current_obj', variable_get('islandora_derivatives_current_obj', '1') + 1);
         $object = new Fedora_Item($pid);
         $missing = FALSE;
+        $rels = $object->get_datastream_dissemination('RELS-INT');
         
-        $dslist = $object->get_datastreams_list_as_array();
+        if (!empty($rels)) {
+          $xml = new SimpleXMLElement($rels); 
+          $dslist = $object->get_datastreams_list_as_array();
+          foreach ($dslist as $dsid => $datastream) { 
+           if (!in_array($dsid, $allowedds)) {
+               // Determine if it is one of our allowed MIMEs before continuing with processing.
+              if (in_array($datastream['MIMEType'], $combinedmimes)) {
+                
+                $descriptions = $xml->xpath('rdf:Description[@rdf:about="info:fedora/'.$pid.'/'.$dsid.'"]');
+                if ($descriptions) {
+                  dsm($rels, 'rels int for ' . $pid);
+                  foreach ($descriptions as $result) {
+                    dsm($result->asXML(), 'as xml for dslabel ' . $dsid);
+                  
+                    if (in_array($datastream['MIMEType'], $allowedimg)) {
+                      $jp2 = strpos($result->asXML(), 'hasJP2');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($jp2 === false || $TN === false) {
+                        dsm($dsid, $pid . ' missing');
+                        $missing = TRUE;
+                      }
+                    } 
+                    elseif (in_array($datastream['MIMEType'], $alloweddoc)) {
+                      $swf = strpos($result->asXML(), 'hasSWF');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($swf === false || $TN === false) {
+                        dsm($dsid, $pid . ' missing');
+                        $missing = TRUE;
+                      }  
+                    }
+                  }
+                }
+                else {
+                  $missing = TRUE; 
+                  $dsidmime = $dslist[$dsid]['MIMEType'];
+                  // Image
+                  if (in_array($dsidmime, $allowedimg) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.jp2') === false) {
+                    dsm($dslist[$dsid]['MIMEType'], 'mimetype for ' . $dsid);
+                    // Check to see if this is a derivative
+                    if ($dsidmime == 'image/jp2') {
+                      $origjp2 = preg_replace('/\.jp2/', '', $dsid);
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origjp2) !== false) {
+                          $missing = FALSE;
+                          dsm($origjp2, 'matches the original key of ' . $key);
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  // Video
+                  elseif (in_array($dsidmime, $allowedvid) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.mp4') === false) {
+                    if ($dsidmime == 'video/mp4') {
+                      $origmp4 = preg_replace('/\.mp4', '', $dsid);
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origmp4) !== false) {
+                          $missing = FALSE;
+                          dsm($origmp4, 'matches the original key of ' . $key);
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  if ($missing) {
+                    dsm($pid, 'this thinger is missing!');
+                  }
+                }
+              }
+            }
+          }  
+        }
+        /*$dslist = $object->get_datastreams_list_as_array();
         
         foreach ($dslist as $dslabel => $datastream) {
           if (!in_array($dslabel, $allowedds)) {
@@ -695,7 +770,7 @@ function islandora_derivatives_find_missing_js() {
               }
             }
           }
-        }
+        }*/
         
         if ($missing) {
           $object->forget();
@@ -1250,7 +1325,7 @@ function islandora_derivatives_img_add_js() {
     }
   }
   
-  $imgpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['img']['img']['#value']));
+  $imgpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['img']['imgtextarea']['#value']));
   $curpids = trim($form_state['post']['pidtextarea']);
   
   if ($form_state['post']['islandora_derivatives_img_box'] == 1) {
