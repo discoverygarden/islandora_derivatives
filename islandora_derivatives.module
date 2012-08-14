@@ -545,23 +545,21 @@ function islandora_derivatives_find_missing_js() {
           $xml = new SimpleXMLElement($rels); 
           $dslist = $object->get_datastreams_list_as_array();
           foreach ($dslist as $dsid => $datastream) { 
-           if (!in_array($dsid, $allowedds)) {
+            if (!in_array($dsid, $allowedds)) {
                // Determine if it is one of our allowed MIMEs before continuing with processing.
               if (in_array($datastream['MIMEType'], $combinedmimes)) {
-                
                 $descriptions = $xml->xpath('rdf:Description[@rdf:about="info:fedora/'.$pid.'/'.$dsid.'"]');
                 if ($descriptions) {
-                  dsm($rels, 'rels int for ' . $pid);
                   foreach ($descriptions as $result) {
-                    dsm($result->asXML(), 'as xml for dslabel ' . $dsid);
-                  
                     if (in_array($datastream['MIMEType'], $allowedimg)) {
                       $jp2 = strpos($result->asXML(), 'hasJP2');
                       $TN = strpos($result->asXML(), 'hasThumbnail');
                       
                       if ($jp2 === false || $TN === false) {
-                        dsm($dsid, $pid . ' missing');
                         $missing = TRUE;
+                        if (!in_array($pid, $missingarray['img'])) {
+                          $missingarray['img'][] = $pid;
+                        }
                       }
                     } 
                     elseif (in_array($datastream['MIMEType'], $alloweddoc)) {
@@ -569,209 +567,130 @@ function islandora_derivatives_find_missing_js() {
                       $TN = strpos($result->asXML(), 'hasThumbnail');
                       
                       if ($swf === false || $TN === false) {
-                        dsm($dsid, $pid . ' missing');
                         $missing = TRUE;
+                        if (!in_array($pid, $missingarray['doc'])) {
+                          $missingarray['doc'][] = $pid;
+                        }
                       }  
+                    }
+                    elseif (in_array($datastream['MIMEType'], $allowedaud)) {
+                      $mp3 = strpos($result->asXML(), 'hasMP3');
+                      $ogg = strpos($result->asXML(), 'hasOGG');
+                      
+                      if ($mp3 === false || $ogg === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['aud'])) {
+                          $missingarray['aud'][] = $pid;
+                        }
+                      }
+                    }
+                    elseif (in_array($datastream['MIMEType'], $allowedvid)) {
+                      $mp4 = strpos($result->asXML(), 'hasMP4');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($mp4 === false || $TN === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['vid'])) {
+                          $missingarray['vid'][] = $pid;
+                        }
+                      }
                     }
                   }
                 }
+                // Doesn't have an RDF about description for the pid and dsid combination.
+                // Need to check if the datastream being passed in is a derivative.
                 else {
                   $missing = TRUE; 
                   $dsidmime = $dslist[$dsid]['MIMEType'];
                   // Image
                   if (in_array($dsidmime, $allowedimg) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.jp2') === false) {
-                    dsm($dslist[$dsid]['MIMEType'], 'mimetype for ' . $dsid);
-                    // Check to see if this is a derivative
+                    // Check to see if this is a derivative, by 
                     if ($dsidmime == 'image/jp2') {
                       $origjp2 = preg_replace('/\.jp2/', '', $dsid);
+                      $substrcount = 0;
                       foreach ($dslist as $key => $value) {
                         if (strpos($key, $origjp2) !== false) {
-                          $missing = FALSE;
-                          dsm($origjp2, 'matches the original key of ' . $key);
-                          break;
+                          $substrcount++;
                         }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
                       }
                     }
                   }
                   // Video
                   elseif (in_array($dsidmime, $allowedvid) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.mp4') === false) {
                     if ($dsidmime == 'video/mp4') {
-                      $origmp4 = preg_replace('/\.mp4', '', $dsid);
+                      $origmp4 = preg_replace('/\.mp4/', '', $dsid);
+                      $substrcount = 0;
                       foreach ($dslist as $key => $value) {
                         if (strpos($key, $origmp4) !== false) {
-                          $missing = FALSE;
-                          dsm($origmp4, 'matches the original key of ' . $key);
-                          break;
+                          $substrcount++;
                         }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
                       }
                     }
                   }
-                  if ($missing) {
-                    dsm($pid, 'this thinger is missing!');
-                  }
-                }
-              }
-            }
-          }  
-        }
-        /*$dslist = $object->get_datastreams_list_as_array();
-        
-        foreach ($dslist as $dslabel => $datastream) {
-          if (!in_array($dslabel, $allowedds)) {
-            if (in_array($datastream['MIMEType'], $allowedimg)) {
-              if ($datastream['label'] != 'thumbnail' && $datastream['label'] != 'Compressed JPEG2000') {
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                }
-                else {
-                  $templabel = $dslabel;
-                }
-                
-                $tempthumb = $templabel . '-tn.jpg';
-
-                if ($datastream['MIMEType'] != 'image/jp2') {
-                  $tempjp2 = $templabel . '.jp2';
-                }
-                elseif ($dslabel == $templabel) {
-                  $tempjp2 = $templabel . '.jp2';
-                }
-                else {
-                  $tempjp2 = $templabel . '.d.jp2';
-                }
-
-                if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempjp2' => $tempjp2,
-                    'dslabel' => $dslabel,
-                    'templabel' => $templabel,
-                  );
-                 
-                  if (!in_array($pid, $missingarray['img'])) {
-                    $missingarray['img'][] = $pid;
-                  }
-                }
-              }
-            }
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $alloweddoc)) {
-              $extpos = strpos(strrev($dslabel), '.');
-
-              if ($extpos) {
-                $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                $templabel = strrev($templabel);
-              }
-              else {
-                $templabel = $dslabel;
-              }
-
-              $tempthumb = $templabel . '-tn.jpg';
-              $tempswf = $templabel . '.swf';
-
-              if (!array_key_exists($tempswf, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                $missing = TRUE;
-                $outputarray = array(
-                  'tempswf' => $tempswf,
-                );
-                if (!in_array($pid, $missingarray['doc'])) {
-                    $missingarray['doc'][] = $pid;
-                }
-              }
-            }
-            // Video derivative standard currently in islandora_microservices
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedvid)) {
-              if ($datastream['label'] != 'compressed mp4') {  
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
-                }
-                else {
-                  $templabel = $dslabel;
-                }
-
-                $tempthumb = $templabel . '-tn.jpg';
-                
-                if ($datastream['MIMEType'] != 'video/mp4' || $extension != '.mp4') {
-                  $tempmp4 = $templabel . '.mp4';
-                }
-                elseif ($dslabel == $templabel) {
-                  $tempmp4 = $templabel . '.mp4';
-                }
-                else {
-                  $tempmp4 = $templabel . '.d.mp4';
-                }
-
-                if (!array_key_exists($tempmp4, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempmp4' => $tempmp4,
-                    'dslabel' => $dslabel,
-                    'templabel' => $templabel,
-                    'extension' => $extension,
-                  );
-                  
-                  if (!in_array($pid, $missingarray['vid'])) {
-                    $missingarray['vid'][] = $pid;
-                  }
-                }
-              }  
-            }
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedaud)) {
-              if ($datastream['label'] != 'compressed to mp3' && $datastream['label'] != 'compressed to ogg') {
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
-                }
-                else {
-                  $templabel = $dslabel;
-                }
-
-                if ($dslabel == $templabel) {
-                  $tempmp3 = $templabel . '.mp3';
-                  $tempogg = $templabel . '.ogg';
-                }
-                else {
-                    if ($extension == 'mp3') {
-                      $tempmp3 = $templabel . '.d.mp3';
-                      $tempogg = $templabel . '.ogg';
+                  elseif (in_array($dsidmime, $allowedaud) && strpos($dsid, '.d.mp3') === false) {
+                    if ($dsidmime == 'audio/mpeg') {
+                      $origmp3 = preg_replace('/\.mp3/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origmp3) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                        $missing = FALSE;
+                      }
                     }
-                    elseif ($extension == 'ogg') {
-                      $tempogg = $templabel . '.d.ogg';
-                      $tempmp3 = $templabel . '.mp3';
+                  }
+                  elseif (in_array($dsidmime, $alloweddoc)) {
+                    if ($dsidmime == 'application/pdf') {
+                      $origpdf = preg_replace('/\.pdf/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origpdf) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
+                      }
                     }
-                    else {
-                      $tempogg = $templabel . '.ogg';
-                      $tempmp3 = $templabel . '.mp3';
+                  }
+                  if ($missing && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.jp2') === false && strpos($dsid, '.d.mp4') === false && strpos($dsid, '.d.mp3') === false) {
+                    if (in_array($dsidmime, $alloweddoc)) {
+                      if (!in_array($pid, $missingarray['doc'])) {
+                        $missingarray['doc'][] = $pid;
+                      }
                     }
-                }
-      
-                if (!array_key_exists($tempmp3, $dslist) || !array_key_exists($tempogg, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempmp3' => $tempmp3,
-                    'tempogg' => $tempogg,
-                    'templabel' => $templabel,
-                    'dslabel' => $dslabel,
-                    'dslist' => $dslist,
-                  );
-                  
-                  if (!in_array($pid, $missingarray['aud'])) {
-                    $missingarray['aud'][] = $pid;
+                    elseif (in_array($dsidmime, $allowedimg)) {
+                      if (!in_array($pid, $missingarray['img'])) {
+                        $missingarray['img'][] = $pid;
+                      }
+                    }
+                    elseif (in_array($dsidmime, $allowedvid)) {
+                      if (!in_array($pid, $missingarray['vid'])) {
+                        $missingarray['vid'][] = $pid;
+                      }
+                    }
+                    elseif (in_array($dsidmime, $allowedaud)) {
+                      if (!in_array($pid, $missingarray['aud'])) {
+                        $missingarray['aud'][] = $pid;
+                      }
+                    }
                   }
                 }
               }
             }
           }
-        }*/
-        
         if ($missing) {
           $object->forget();
         }
@@ -788,6 +707,10 @@ function islandora_derivatives_find_missing_js() {
       $form_state['storage']['missingderivs'] = $missingarray;
     }
     $form_state['storage']['findmissing'] = 'RAN';
+    
+    
+    }
+    
   }
     
   $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
@@ -846,7 +769,6 @@ function islandora_derivatives_add_collection_js() {
   $pidselect = $_POST['collectionoptions'];
   $pids = $_POST['pidtextarea'];
   $checked = $_POST['findmissing'];
-  
   $derivoptions = $_POST['derivoptions'];
   
   if ($pidselect == 'default') {
