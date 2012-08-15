@@ -65,7 +65,7 @@ function islandora_derivatives_menu() {
     'access arguments' => array('administer site configuration'),
   );
   $items['admin/settings/islandora_derivatives/imageadd'] = array(
-    'page callback' => 'islandora_derivatives_image_add_js',
+    'page callback' => 'islandora_derivatives_img_add_js',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
     'access arguments' => array('administer site configuration'),
@@ -154,8 +154,8 @@ function islandora_derivatives_form($form_state) {
   }
    
   $options['default'] = t('-- Select an option --');
-  $options['all'] = t('All derivatives');
-  $options['missing'] = t('Only missing derivatives');
+  $options['all'] = t('Regenerate all derivatives');
+  $options['missing'] = t('Generate missing derivatives');
   
   $form = array(
     '#title' => t('Islandora Derivatives'),
@@ -164,27 +164,27 @@ function islandora_derivatives_form($form_state) {
     '#action' => '/admin/settings/islandora_derivatives',
     'derivoptions' => array(
       '#type' => 'select',
-      '#title' => t('Select an option of regenerating derivatives'),
+      '#title' => t('Select an action for these PIDs'),
       '#options' => $options,
-      '#weight' => 1,
+      '#weight' => 5,
     ),
     'collectionoptions' => array(
       '#type' => 'select',
-      '#title' => t('Select a collection to recursively go through'),
+      '#title' => t('Select PIDs from a collection'),
       '#options' => $collectionlist,
       '#prefix' => '<div class="islandora_derivatives_collection_list">',
       '#suffix' => '</div>',
-      '#weight' => 3,
+      '#weight' => 2,
     ),
     'collectionadd' => array(
-      '#type' => 'image_button',
-        '#src' => drupal_get_path('module', 'islandora_derivatives') . '/images/add.png', 
-        '#ahah' => array(
-          'event' => 'click',
-          'path' => 'admin/settings/islandora_derivatives/addcollection',
-          'wrapper' => 'islandora_derivatives',
-        ),
-      '#weight' => 4,
+      '#type' => 'button',
+      '#value' => t('Add PIDs to processing list?'),
+      '#ahah' => array(
+        'event' => 'click',
+        'path' => 'admin/settings/islandora_derivatives/addcollection',
+        'wrapper' => 'islandora_derivatives',
+      ),
+      '#weight' => 2,
     ),
     'pidtextarea' => array(
       '#type' => 'textarea',
@@ -193,7 +193,7 @@ function islandora_derivatives_form($form_state) {
           array(
           '%namespaces' => $namespaces,  
           )),
-      '#weight' => 5,
+      '#weight' => 4,
     ),
     'submit' => array(
       '#type' => 'submit',
@@ -229,9 +229,9 @@ function islandora_derivatives_form($form_state) {
     
   if (!isset($form_state['storage']['findmissing'])) {
     $form['findmissing'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('Search for all objects missing derivatives?'),
-      '#weight' => 2,
+      '#type' => 'button',
+      '#value' => t('Search for all objects missing derivatives?'),
+      '#weight' => 1,
       '#ahah' => array(
         'path' => 'admin/settings/islandora_derivatives/findmissing',
         'wrapper' => 'islandora_derivatives',
@@ -252,7 +252,7 @@ function islandora_derivatives_form($form_state) {
       '#tree' => TRUE,
       '#collapsible' => TRUE,
       '#collapsed' => FALSE,
-      '#weight' => 2,
+      '#weight' => 1,
     );
     
     // Check the form state to see which fieldsets need to be created
@@ -281,7 +281,7 @@ function islandora_derivatives_form($form_state) {
         'audioadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_audio_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/audioadd',
@@ -317,7 +317,7 @@ function islandora_derivatives_form($form_state) {
         'videoadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_video_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/videoadd',
@@ -352,7 +352,7 @@ function islandora_derivatives_form($form_state) {
         'docadd' => array(
           '#type' => 'checkbox',
           '#name' => 'islandora_derivatives_doc_box',
-          '#title' => t('Add to textarea?'),
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/docadd',
@@ -386,8 +386,8 @@ function islandora_derivatives_form($form_state) {
         ),
         'imgadd' => array(
           '#type' => 'checkbox',
-          '#name' => 'islandora_derivatives_audio_box',
-          '#title' => t('Add to textarea?'),
+          '#name' => 'islandora_derivatives_img_box',
+          '#title' => t('Add PIDs to processing list?'),
           '#weight' => 6,
           '#ahah' => array(
               'path' => 'admin/settings/islandora_derivatives/imageadd',
@@ -510,6 +510,7 @@ function islandora_derivatives_find_missing_js() {
         'tiff' => 'image/tiff',
         'tif' => 'image/tif',
         'jp2' => 'image/jp2',
+        // Need to look at GIFs in microservices 'gif' => 'image/gif',
       );
       $alloweddoc = array(
         'pdf' => 'application/pdf',
@@ -531,172 +532,165 @@ function islandora_derivatives_find_missing_js() {
         'mov' => 'video/quicktime',
         'wmv' => 'video/x-ms-wmv',
       );
-      
+      $combinedmimes = array_merge($allowedimg, $alloweddoc, $allowedaud, $allowedvid);
       // Go through and determine which objects are missing derivatives based 
       // upon the conditions in which microservices checks on.
       foreach ($resultpids as $pid) {
         variable_set('islandora_derivatives_current_obj', variable_get('islandora_derivatives_current_obj', '1') + 1);
         $object = new Fedora_Item($pid);
         $missing = FALSE;
+        $rels = $object->get_datastream_dissemination('RELS-INT');
         
-        $dslist = $object->get_datastreams_list_as_array();
-        
-        foreach ($dslist as $dslabel => $datastream) {
-          if (!in_array($dslabel, $allowedds)) {
-            if (in_array($datastream['MIMEType'], $allowedimg)) {
-              if ($datastream['label'] != 'thumbnail' && $datastream['label'] != 'Compressed JPEG2000') {
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                }
-                else {
-                  $templabel = $dslabel;
-                }
-                
-                $tempthumb = $templabel . '-tn.jpg';
-
-                if ($datastream['MIMEType'] != 'image/jp2') {
-                  $tempjp2 = $templabel . '.jp2';
-                }
-                elseif ($dslabel == $templabel) {
-                  $tempjp2 = $templabel . '.jp2';
-                }
-                else {
-                  $tempjp2 = $templabel . '.d.jp2';
-                }
-
-                if (!array_key_exists($tempjp2, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempjp2' => $tempjp2,
-                    'dslabel' => $dslabel,
-                    'templabel' => $templabel,
-                  );
-                 
-                  if (!in_array($pid, $missingarray['img'])) {
-                    $missingarray['img'][] = $pid;
+        if (!empty($rels)) {
+          $xml = new SimpleXMLElement($rels); 
+          $dslist = $object->get_datastreams_list_as_array();
+          foreach ($dslist as $dsid => $datastream) { 
+            if (!in_array($dsid, $allowedds)) {
+               // Determine if it is one of our allowed MIMEs before continuing with processing.
+              if (in_array($datastream['MIMEType'], $combinedmimes)) {
+                $descriptions = $xml->xpath('rdf:Description[@rdf:about="info:fedora/'.$pid.'/'.$dsid.'"]');
+                if ($descriptions) {
+                  foreach ($descriptions as $result) {
+                    if (in_array($datastream['MIMEType'], $allowedimg)) {
+                      $jp2 = strpos($result->asXML(), 'hasJP2');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($jp2 === false || $TN === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['img'])) {
+                          $missingarray['img'][] = $pid;
+                        }
+                      }
+                    } 
+                    elseif (in_array($datastream['MIMEType'], $alloweddoc)) {
+                      $swf = strpos($result->asXML(), 'hasSWF');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($swf === false || $TN === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['doc'])) {
+                          $missingarray['doc'][] = $pid;
+                        }
+                      }  
+                    }
+                    elseif (in_array($datastream['MIMEType'], $allowedaud)) {
+                      $mp3 = strpos($result->asXML(), 'hasMP3');
+                      $ogg = strpos($result->asXML(), 'hasOGG');
+                      
+                      if ($mp3 === false || $ogg === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['aud'])) {
+                          $missingarray['aud'][] = $pid;
+                        }
+                      }
+                    }
+                    elseif (in_array($datastream['MIMEType'], $allowedvid)) {
+                      $mp4 = strpos($result->asXML(), 'hasMP4');
+                      $TN = strpos($result->asXML(), 'hasThumbnail');
+                      
+                      if ($mp4 === false || $TN === false) {
+                        $missing = TRUE;
+                        if (!in_array($pid, $missingarray['vid'])) {
+                          $missingarray['vid'][] = $pid;
+                        }
+                      }
+                    }
                   }
                 }
-              }
-            }
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $alloweddoc)) {
-              $extpos = strpos(strrev($dslabel), '.');
-
-              if ($extpos) {
-                $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                $templabel = strrev($templabel);
-              }
-              else {
-                $templabel = $dslabel;
-              }
-
-              $tempthumb = $templabel . '-tn.jpg';
-              $tempswf = $templabel . '.swf';
-
-              if (!array_key_exists($tempswf, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                $missing = TRUE;
-                $outputarray = array(
-                  'tempswf' => $tempswf,
-                );
-                if (!in_array($pid, $missingarray['doc'])) {
-                    $missingarray['doc'][] = $pid;
-                }
-              }
-            }
-            // Video derivative standard currently in islandora_microservices
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedvid)) {
-              if ($datastream['label'] != 'compressed mp4') {  
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
-                }
+                // Doesn't have an RDF about description for the pid and dsid combination.
+                // Need to check if the datastream being passed in is a derivative.
                 else {
-                  $templabel = $dslabel;
-                }
-
-                $tempthumb = $templabel . '-tn.jpg';
-                
-                if ($datastream['MIMEType'] != 'video/mp4' || $extension != '.mp4') {
-                  $tempmp4 = $templabel . '.mp4';
-                }
-                elseif ($dslabel == $templabel) {
-                  $tempmp4 = $templabel . '.mp4';
-                }
-                else {
-                  $tempmp4 = $templabel . '.d.mp4';
-                }
-
-                if (!array_key_exists($tempmp4, $dslist) || !array_key_exists($tempthumb, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempmp4' => $tempmp4,
-                    'dslabel' => $dslabel,
-                    'templabel' => $templabel,
-                    'extension' => $extension,
-                  );
-                  
-                  if (!in_array($pid, $missingarray['vid'])) {
-                    $missingarray['vid'][] = $pid;
+                  $missing = TRUE; 
+                  $dsidmime = $dslist[$dsid]['MIMEType'];
+                  // Image
+                  if (in_array($dsidmime, $allowedimg) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.jp2') === false) {
+                    // Check to see if this is a derivative, by 
+                    if ($dsidmime == 'image/jp2') {
+                      $origjp2 = preg_replace('/\.jp2/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origjp2) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
+                      }
+                    }
                   }
-                }
-              }  
-            }
-            elseif (!in_array($dslabel, $allowedds) && in_array($datastream['MIMEType'], $allowedaud)) {
-              if ($datastream['label'] != 'compressed to mp3' && $datastream['label'] != 'compressed to ogg') {
-                $extpos = strpos(strrev($dslabel), '.');
-
-                if ($extpos) {
-                  $templabel = substr(strrev($dslabel), $extpos + 1, strlen($dslabel));
-                  $templabel = strrev($templabel);
-                  $extension = substr($dslabel, strlen($dslabel) - $extpos, strlen($dslabel));
-                }
-                else {
-                  $templabel = $dslabel;
-                }
-
-                if ($dslabel == $templabel) {
-                  $tempmp3 = $templabel . '.mp3';
-                  $tempogg = $templabel . '.ogg';
-                }
-                else {
-                    if ($extension == 'mp3') {
-                      $tempmp3 = $templabel . '.d.mp3';
-                      $tempogg = $templabel . '.ogg';
+                  // Video
+                  elseif (in_array($dsidmime, $allowedvid) && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.mp4') === false) {
+                    if ($dsidmime == 'video/mp4') {
+                      $origmp4 = preg_replace('/\.mp4/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origmp4) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
+                      }
                     }
-                    elseif ($extension == 'ogg') {
-                      $tempogg = $templabel . '.d.ogg';
-                      $tempmp3 = $templabel . '.mp3';
+                  }
+                  elseif (in_array($dsidmime, $allowedaud) && strpos($dsid, '.d.mp3') === false) {
+                    if ($dsidmime == 'audio/mpeg') {
+                      $origmp3 = preg_replace('/\.mp3/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origmp3) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                        $missing = FALSE;
+                      }
                     }
-                    else {
-                      $tempogg = $templabel . '.ogg';
-                      $tempmp3 = $templabel . '.mp3';
+                  }
+                  elseif (in_array($dsidmime, $alloweddoc)) {
+                    if ($dsidmime == 'application/pdf') {
+                      $origpdf = preg_replace('/\.pdf/', '', $dsid);
+                      $substrcount = 0;
+                      foreach ($dslist as $key => $value) {
+                        if (strpos($key, $origpdf) !== false) {
+                          $substrcount++;
+                        }
+                      }
+                      
+                      if ($substrcount > 1) {
+                         $missing = FALSE;
+                      }
                     }
-                }
-      
-                if (!array_key_exists($tempmp3, $dslist) || !array_key_exists($tempogg, $dslist)) {
-                  $missing = TRUE;
-                  $outputarray = array(
-                    'tempmp3' => $tempmp3,
-                    'tempogg' => $tempogg,
-                    'templabel' => $templabel,
-                    'dslabel' => $dslabel,
-                    'dslist' => $dslist,
-                  );
-                  
-                  if (!in_array($pid, $missingarray['aud'])) {
-                    $missingarray['aud'][] = $pid;
+                  }
+                  if ($missing && strpos($dsid, '-tn.jpg') === false && strpos($dsid, '.d.jp2') === false && strpos($dsid, '.d.mp4') === false && strpos($dsid, '.d.mp3') === false) {
+                    if (in_array($dsidmime, $alloweddoc)) {
+                      if (!in_array($pid, $missingarray['doc'])) {
+                        $missingarray['doc'][] = $pid;
+                      }
+                    }
+                    elseif (in_array($dsidmime, $allowedimg)) {
+                      if (!in_array($pid, $missingarray['img'])) {
+                        $missingarray['img'][] = $pid;
+                      }
+                    }
+                    elseif (in_array($dsidmime, $allowedvid)) {
+                      if (!in_array($pid, $missingarray['vid'])) {
+                        $missingarray['vid'][] = $pid;
+                      }
+                    }
+                    elseif (in_array($dsidmime, $allowedaud)) {
+                      if (!in_array($pid, $missingarray['aud'])) {
+                        $missingarray['aud'][] = $pid;
+                      }
+                    }
                   }
                 }
               }
             }
           }
-        }
-        
         if ($missing) {
           $object->forget();
         }
@@ -713,6 +707,10 @@ function islandora_derivatives_find_missing_js() {
       $form_state['storage']['missingderivs'] = $missingarray;
     }
     $form_state['storage']['findmissing'] = 'RAN';
+    
+    
+    }
+    
   }
     
   $form = Ahah::rebuildForm($form_id, $form_build_id, $form, $form_state);
@@ -771,7 +769,6 @@ function islandora_derivatives_add_collection_js() {
   $pidselect = $_POST['collectionoptions'];
   $pids = $_POST['pidtextarea'];
   $checked = $_POST['findmissing'];
-  
   $derivoptions = $_POST['derivoptions'];
   
   if ($pidselect == 'default') {
@@ -1250,7 +1247,7 @@ function islandora_derivatives_img_add_js() {
     }
   }
   
-  $imgpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['img']['img']['#value']));
+  $imgpidsarray = explode(' ', str_replace(',', '', $form['missingderivfield']['img']['imgtextarea']['#value']));
   $curpids = trim($form_state['post']['pidtextarea']);
   
   if ($form_state['post']['islandora_derivatives_img_box'] == 1) {
